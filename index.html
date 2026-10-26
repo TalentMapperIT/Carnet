@@ -57,7 +57,7 @@ textarea{min-height:320px;line-height:1.7;border:1px solid var(--filet);padding:
 .sticky{position:sticky;bottom:0;background:var(--page);padding:10px 0;display:flex;gap:8px;border-top:1px solid var(--or);margin-top:20px}
 </style></head><body>
 <header><div class="cv"><h1>Carnet de chasse</h1><p class="sub">Registre des sorties, saison du 1er août au 31 juillet</p><div class="orn"></div><p id="bilan"></p></div>
-<nav class="bar"><a onclick="csv()">Exporter pour Excel</a><a onclick="bak()">Sauvegarder</a><a onclick="$('#imp').click()">Importer</a><a id="who" onclick="out()"></a><input id="imp" type="file" accept=".json" hidden></nav></header>
+<nav class="bar"><a onclick="csv()">Exporter pour Excel</a><a onclick="bak()">Sauvegarder</a><a onclick="$('#imp').click()">Importer</a><a id="sy" onclick="sync(true)">Synchroniser</a><a id="who" onclick="out()"></a><input id="imp" type="file" accept=".json" hidden></nav></header>
 <main id="app"></main><button id="add" onclick="edit()">Nouvelle sortie</button>
 <script>
 const $=s=>document.querySelector(s),esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -86,15 +86,15 @@ const grp=(g,v)=>Object.entries(g).map(([k,a])=>`<optgroup label="${esc(k)}">${o
 const fd=d=>new Date(d+'T12:00').toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
 let cur=null;
 
-async function home(){if(!ME)return login();cur=null;$('#add').hidden=false;document.body.className='home';$('.sub').textContent='Registre de '+ME.nom+', saison du 1er août au 31 juillet';$('#who').textContent='Changer de compte';
- const hs=(await all()).filter(h=>h.uid==ME.id).sort((a,b)=>b.date.localeCompare(a.date)),S={};
+async function home(){if(!ME)return login();cur=null;$('#add').hidden=false;document.body.className='home';$('.sub').textContent='Registre de '+ME.nom.split('@')[0]+', saison du 1er août au 31 juillet';$('#who').textContent='Se déconnecter';
+ const hs=(await all()).filter(h=>h.uid==ME.id&&!h._del).sort((a,b)=>b.date.localeCompare(a.date)),S={};
  hs.forEach(h=>(S[season(h.date)]??=[]).push(h));const cs=S[season(new Date().toISOString().slice(0,10))]||[];const sm=(l,f)=>l.reduce((n,h)=>n+(h.animaux||[]).reduce((m,a)=>m+(+a[f]||0),0),0),tp=sm(cs.filter(h=>!isPris(h.mode)),'moi'),pp=sm(cs.filter(h=>isPris(h.mode)),'pris'),bi=[tp?tp+' animal'+(tp>1?'aux':'')+' prélevé'+(tp>1?'s':'')+' par vous':'',pp?pp+' animal'+(pp>1?'aux':'')+' pris en vénerie ou déterrage':''].filter(Boolean);$('#bilan').textContent=cs.length?`Cette saison : ${cs.length} sortie${cs.length>1?'s':''}${bi.length?', '+bi.join(', '):''}`:'Une nouvelle saison s’ouvre.';
  $('#app').innerHTML=hs.length?Object.entries(S).map(([s,a],i)=>`<details class="dos"${i?'':' open'}><summary><span class="sl">Saison</span><span class="sy">${s}</span><i>${a.length} sortie${a.length>1?'s':''}</i></summary>${a.map(card).join('')}</details>`).join(''):'<p class="vide">Le carnet est vide. Ajoutez votre première sortie : un dossier de saison se crée tout seul.</p>'}
 function card(h){const p=(h.animaux||[]).reduce((n,a)=>n+(+a.pris||0),0),q=(h.animaux||[]).reduce((n,a)=>n+(+a.moi||0),0),v=+h.voie||0,d=new Date(h.date+'T12:00');
  return `<div class="c" onclick="edit('${h.id}')"><div class="dt"><b>${d.getDate()}</b><i>${d.toLocaleDateString('fr-FR',{month:'short'}).replace('.','')}</i></div><div class="tx"><span class="lieu">${esc(h.lieu||h.commune)}</span><em>${[h.lieu?h.commune:'',h.mode,h.equipage].filter(Boolean).map(esc).join(', ')}</em><small>${isPris(h.mode)?(p?p+' pris':''):(p?'Tableau '+p:'')+(q?(p?', dont ':'Moi : ')+q+(p?' par moi':''):'')}${v?`<span class="voie" title="Qualité de la voie">${'●'.repeat(v)+'○'.repeat(5-v)}</span>`:''}</small></div>${h.photos?.[0]?`<img src="${h.photos[0]}">`:'<span></span>'}</div>`}
 
 async function edit(id){$('#add').hidden=true;document.body.className='edit';
- cur=id?(await all()).find(h=>h.id==id):{id:crypto.randomUUID(),uid:ME.id,date:new Date().toISOString().slice(0,10),part:[],animaux:[{a:'',vu:'',pris:''}],photos:[]};
+ cur=id?(await all()).find(h=>h.id==id):{id:crypto.randomUUID(),uid:ME.id,sb:true,date:new Date().toISOString().slice(0,10),part:[],animaux:[{a:'',vu:'',pris:''}],photos:[]};
  if(cur.duree&&cur.duree_min==null){cur.duree_min=pd(cur.duree);if(cur.duree_min!=null)cur.duree=fm(cur.duree_min)}
  {const i=WA.indexOf(cur.dirv);if(i>=0)cur.dirv=WIND[i]}
  const F=(k,l,t='text',x='')=>`<label>${l}<input data-k="${k}" type="${t}" value="${esc(cur[k])}" ${x}></label>`,
@@ -139,9 +139,9 @@ const rowsA=()=>{const P=isPris(cur.mode),c=P?' p':'';$('#tn').textContent=P?'Pr
  $('#ans').innerHTML=`<div class="an${c}"><small>Espèce</small><small>Vus</small>${P?'<small>Pris</small>':'<small>Tableau</small><small>Moi</small>'}<span></span></div>`+cur.animaux.map((r,i)=>`<div class="an${c}"><select onchange="cur.animaux[${i}].a=this.value"><option value="">—</option>${grp(ANIMAUX,r.a)}</select><input type="number" min="0" value="${esc(r.vu)}" oninput="cur.animaux[${i}].vu=this.value"><input type="number" min="0" value="${esc(r.pris)}" oninput="cur.animaux[${i}].pris=this.value">${P?'':`<input type="number" min="0" value="${esc(r.moi)}" oninput="cur.animaux[${i}].moi=this.value">`}<a onclick="cur.animaux.splice(${i},1);rowsA()" style="cursor:pointer;color:#8a2a1c">×</a></div>`).join('')};
 const addA=()=>{cur.animaux.push({a:'',vu:'',pris:''});rowsA()};
 const phs=()=>$('#ph').innerHTML=cur.photos.map((p,i)=>`<div><img src="${p}"><a onclick="cur.photos.splice(${i},1);phs()">×</a></div>`).join('');
-const rs=f=>new Promise(ok=>{const i=new Image();i.onload=()=>{const s=Math.min(1,1400/Math.max(i.width,i.height)),c=document.createElement('canvas');c.width=i.width*s;c.height=i.height*s;c.getContext('2d').drawImage(i,0,0,c.width,c.height);ok(c.toDataURL('image/jpeg',.8))};i.src=URL.createObjectURL(f)});
-async function save(){if(!cur.date||!(cur.lieu||cur.commune))return alert('Date et lieu (ou commune) sont nécessaires.');await put(cur);home()}
-async function rm(){if(confirm('Supprimer définitivement cette sortie ?')){await del(cur.id);home()}}
+const rs=f=>new Promise(ok=>{const i=new Image();i.onload=()=>{const s=Math.min(1,1100/Math.max(i.width,i.height)),c=document.createElement('canvas');c.width=i.width*s;c.height=i.height*s;c.getContext('2d').drawImage(i,0,0,c.width,c.height);ok(c.toDataURL('image/jpeg',.72))};i.src=URL.createObjectURL(f)});
+async function save(){if(!cur.date||!(cur.lieu||cur.commune))return alert('Date et lieu (ou commune) sont nécessaires.');cur._dirty=true;cur.sb=true;await put(cur);home();sync()}
+async function rm(){if(confirm('Supprimer définitivement cette sortie ?')){cur._del=true;cur._dirty=true;await put(cur);home();sync()}}
 
 const st=t=>{const e=$('#st');if(e)e.textContent=t};
 function setv(k,v){cur[k]=v;const e=document.querySelector(`[data-k=${k}]`);if(e)e.value=v}
@@ -187,30 +187,50 @@ async function geol(){const la=+cur.lat,lo=+cur.lon,d=.0005;if(!la||!lo)throw Er
  throw Error('Aucune donnée géologique à ce point')}
 const COLS=[['date','Date'],['saison','Saison'],['lieu','Lieu exact'],['commune','Commune'],['dept','Département'],['lat','Latitude'],['lon','Longitude'],['mode','Mode de chasse'],['famille','Type de chasse'],['equipage','Équipage'],['maitre','Maître d’équipage'],['chiens','Nb chiens'],['rdv','Rendez-vous'],['participants','Participants'],['nb_participants','Nb participants'],['especes','Espèces (vus / pris ou tableau / moi)'],['total_vus','Total vus'],['total_pris','Total pris ou tableau général'],['total_moi','Total prélevé par moi'],['resultat','Résultat'],['duree','Durée'],['duree_min','Durée (min)'],['tmoy','Temp moy'],['tmax','Temp max'],['tmin','Temp min'],['hum','Humidité %'],['pres','Pression hPa'],['nuage','Nébulosité %'],['vent','Vent km/h'],['dirv','Direction vent'],['dirv_deg','Direction vent °'],['pluie','Pluie jour mm'],['pluie_veille','Pluie veille mm'],['kp_max','Kp max'],['kp_moy','Kp moyen'],['geol','Géologie'],['geol_detail','Géologie – détail'],['biotope','Biotope'],['biotope_detail','Biotope – détail'],['etat_sol','État du sol'],['voie','Qualité voie (1-5)'],['voie_note','Note voie'],['recit','Récit'],['nb_photos','Nb photos']];
 const dl=(n,t,m)=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([t],{type:m}));a.download=n;a.click()};
-async function csv(){const hs=(await all()).filter(h=>h.uid==ME.id).sort((a,b)=>a.date.localeCompare(b.date)),q=v=>{v=String(v??'');if(v!==''&&!isNaN(v)&&!/^0\d/.test(v))v=v.replace('.',',');return/[;"\n]/.test(v)?`"${v.replace(/"/g,'""')}"`:v};
+async function csv(){const hs=(await all()).filter(h=>h.uid==ME.id&&!h._del).sort((a,b)=>a.date.localeCompare(b.date)),q=v=>{v=String(v??'');if(v!==''&&!isNaN(v)&&!/^0\d/.test(v))v=v.replace('.',',');return/[;"\n]/.test(v)?`"${v.replace(/"/g,'""')}"`:v};
  const rows=hs.map(h=>{const A=h.animaux||[];return{...h,saison:season(h.date),famille:/^Vénerie/.test(h.mode||'')?'Vénerie':/^Déterrage/.test(h.mode||'')?'Déterrage':'Tir et autres',dirv_deg:WIND.indexOf(h.dirv)>=0?WIND.indexOf(h.dirv)*22.5:'',participants:(h.part||[]).join(' | '),nb_participants:(h.part||[]).length,especes:A.filter(a=>a.a).map(a=>`${a.a} (${a.vu||0}/${a.pris||0}/${a.moi||0})`).join(' | '),total_vus:A.reduce((n,a)=>n+(+a.vu||0),0),total_pris:A.reduce((n,a)=>n+(+a.pris||0),0),total_moi:A.reduce((n,a)=>n+(+a.moi||0),0),nb_photos:(h.photos||[]).length}});
  dl('carnet-chasse.csv','\ufeff'+COLS.map(c=>c[1]).join(';')+'\n'+rows.map(r=>COLS.map(c=>q(r[c[0]])).join(';')).join('\n'),'text/csv;charset=utf-8')}
-async function bak(){dl('carnet-chasse-sauvegarde.json',JSON.stringify((await all()).filter(h=>h.uid==ME.id)),'application/json')}
-$('#imp').onchange=async e=>{try{const a=JSON.parse(await e.target.files[0].text());for(const h of a)await put({...h,uid:ME.id});home();alert(a.length+' sortie(s) importée(s).')}catch{alert('Fichier invalide.')}};
-let ME=null;
+async function bak(){dl('carnet-chasse-sauvegarde.json',JSON.stringify((await all()).filter(h=>h.uid==ME.id&&!h._del)),'application/json')}
+$('#imp').onchange=async e=>{try{const a=JSON.parse(await e.target.files[0].text());for(const h of a)await put({...h,uid:ME.id,sb:true,_dirty:true,_del:false});home();sync();alert(a.length+' sortie(s) importée(s).')}catch{alert('Fichier invalide.')}};
+const SB='https://gjyihphdfrothvpvycng.supabase.co',KEY='sb_publishable_Rn6H1ebVkUU7B3jbxjYUnQ_RjOhv3oT';
+let ME=null,AU=null,syncing=false;
 const LS={get:k=>{try{return localStorage.getItem(k)}catch{return null}},set:(k,v)=>{try{localStorage.setItem(k,v)}catch{}},del:k=>{try{localStorage.removeItem(k)}catch{}}};
-const users=()=>{try{return JSON.parse(LS.get('carnet_users')||'[]')}catch{return[]}};
-const hx=async(pw,salt)=>{if(window.crypto&&crypto.subtle){const k=await crypto.subtle.importKey('raw',new TextEncoder().encode(pw),'PBKDF2',false,['deriveBits']),b=await crypto.subtle.deriveBits({name:'PBKDF2',salt:new TextEncoder().encode(salt),iterations:100000,hash:'SHA-256'},k,256);return[...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('')}
- let h=5381;for(const c of salt+pw)h=(h*33^c.charCodeAt(0))>>>0;return'x'+h};
-function login(m){ME=null;cur=null;$('#add').hidden=true;document.body.className='home login';$('#bilan').textContent='';$('.sub').textContent='Registre des sorties, saison du 1er août au 31 juillet';const U=users();
- $('#app').innerHTML=`<div class="form" style="max-width:440px;margin:0 auto">${U.length?`<h2>Ouvrir mon carnet</h2><label>Compte<select id="lu">${U.map(u=>`<option value="${u.id}">${esc(u.nom)}</option>`).join('')}</select></label><label>Mot de passe<input id="lp" type="password" autocomplete="current-password"></label><div class="row"><button onclick="doLogin()">Ouvrir</button></div>`:''}
- <h2>${U.length?'Créer un autre compte':'Créer votre compte'}</h2><label>Nom ou pseudo<input id="cn" autocomplete="username"></label><label>Mot de passe (4 caractères minimum)<input id="cp" type="password" autocomplete="new-password"></label><label>Confirmer le mot de passe<input id="cq" type="password" autocomplete="new-password"></label>
- <div class="row"><button class="${U.length?'ghost':''}" onclick="doCreate()">Créer le compte</button></div><div class="st" id="lm">${esc(m||'')}</div></div>`}
-async function doLogin(){const u=users().find(x=>x.id==$('#lu').value);if(!u)return;
- if(await hx($('#lp').value,u.salt)!==u.hash){$('#lm').textContent='Mot de passe incorrect.';return}
- ME=u;LS.set('carnet_session',u.id);home()}
-async function doCreate(){const n=$('#cn').value.trim(),p=$('#cp').value,U=users(),m=t=>$('#lm').textContent=t;
- if(!n)return m('Indiquez un nom.');if(U.some(u=>u.nom.toLowerCase()==n.toLowerCase()))return m('Ce nom existe déjà.');
- if(p.length<4)return m('Mot de passe trop court (4 caractères minimum).');if(p!==$('#cq').value)return m('Les deux mots de passe diffèrent.');
- const salt=[...crypto.getRandomValues(new Uint8Array(12))].map(x=>x.toString(16).padStart(2,'0')).join(''),u={id:crypto.randomUUID(),nom:n,salt,hash:await hx(p,salt)};
- if(!U.length)for(const h of await all())if(!h.uid){h.uid=u.id;await put(h)}
- U.push(u);LS.set('carnet_users',JSON.stringify(U));ME=u;LS.set('carnet_session',u.id);home()}
-function out(){LS.del('carnet_session');login()}
+async function gj(path,opt={},tk){const r=await fetch(SB+path,{...opt,headers:{apikey:KEY,'Content-Type':'application/json',...(tk?{Authorization:'Bearer '+tk}:{}),...(opt.headers||{})}}),t=await r.text();let j=null;try{j=t?JSON.parse(t):null}catch{}
+ if(!r.ok){const e=Error(j?.msg||j?.message||j?.error_description||j?.error||'Erreur '+r.status);e.status=r.status;e.code=j?.error_code||j?.code||'';throw e}return j}
+const fr=e=>{const x=(e.code||'')+' '+e.message;return e instanceof TypeError?'Pas de connexion Internet.':/invalid login|invalid_credentials/i.test(x)?'E-mail ou mot de passe incorrect.':/already registered|already_exists/i.test(x)?'Un compte existe déjà avec cet e-mail : utilisez « Se connecter ».':/weak|short|at least/i.test(x)?'Mot de passe trop faible (6 caractères minimum).':/rate|too many|over_email/i.test(x)?'Trop de tentatives : réessayez dans quelques minutes.':e.message};
+const saveAU=s=>{AU={access:s.access_token,refresh:s.refresh_token,exp:Date.now()/1000+(s.expires_in||3600),id:s.user.id,email:s.user.email};LS.set('carnet_auth',JSON.stringify(AU))};
+async function token(){if(AU.exp-60<Date.now()/1000){try{saveAU(await gj('/auth/v1/token?grant_type=refresh_token',{method:'POST',body:JSON.stringify({refresh_token:AU.refresh})}))}catch(e){if(e.status>=400&&e.status<500)throw e}}return AU.access}
+function login(m){ME=null;cur=null;$('#add').hidden=true;document.body.className='home login';$('#bilan').textContent='';$('.sub').textContent='Registre des sorties, saison du 1er août au 31 juillet';
+ $('#app').innerHTML=`<div class="form" style="max-width:440px;margin:0 auto"><h2>Mon carnet</h2><label>Adresse e-mail<input id="le" type="email" autocomplete="username"></label><label>Mot de passe<input id="lp" type="password" autocomplete="current-password"></label>
+ <div class="row"><button onclick="doAuth(false)">Se connecter</button><button class="ghost" onclick="doAuth(true)">Créer un compte</button></div><div class="row"><a onclick="forgot()" style="cursor:pointer;color:var(--brun);border-bottom:1px solid var(--or)">Mot de passe oublié</a></div><div class="st" id="lm">${esc(m||'')}</div></div>`}
+async function doAuth(create){const em=$('#le').value.trim(),pw=$('#lp').value,m=t=>$('#lm').textContent=t;
+ if(!em.includes('@'))return m('Saisissez une adresse e-mail valide.');if(pw.length<6)return m('Mot de passe : 6 caractères minimum.');m('Connexion…');
+ try{const s=await gj(create?'/auth/v1/signup':'/auth/v1/token?grant_type=password',{method:'POST',body:JSON.stringify({email:em,password:pw})});
+  if(!s.access_token)return m('Compte créé : confirmez-le avec l’e-mail reçu, puis connectez-vous.');saveAU(s);await enter()}catch(e){m(fr(e))}}
+async function enter(){ME={id:AU.id,nom:AU.email};const or=(await all()).filter(h=>!h.sb&&!h._del);
+ if(or.length&&!LS.get('carnet_orph_no')&&confirm(or.length+' sortie(s) enregistrée(s) sur cet appareil avant la synchronisation. Les rattacher au compte '+ME.nom+' ?')){for(const h of or){h.uid=ME.id;h.sb=true;h._dirty=true;await put(h)}}else if(or.length)LS.set('carnet_orph_no','1');
+ home();sync()}
+function out(){LS.del('carnet_auth');AU=null;login()}
+async function forgot(){const em=$('#le').value.trim(),m=t=>$('#lm').textContent=t;if(!em)return m('Saisissez d’abord votre e-mail.');
+ try{await gj('/auth/v1/recover?redirect_to='+encodeURIComponent(location.origin+location.pathname),{method:'POST',body:JSON.stringify({email:em})});m('E-mail envoyé : ouvrez le lien qu’il contient.')}catch(e){m(fr(e))}}
+function recov(t){document.body.className='home login';$('#add').hidden=true;$('#app').innerHTML=`<div class="form" style="max-width:440px;margin:0 auto"><h2>Nouveau mot de passe</h2><label>Nouveau mot de passe<input id="np" type="password" autocomplete="new-password"></label><div class="row"><button onclick="doRecov('${t}')">Enregistrer</button></div><div class="st" id="lm"></div></div>`}
+async function doRecov(t){const p=$('#np').value;if(p.length<6)return $('#lm').textContent='6 caractères minimum.';try{await gj('/auth/v1/user',{method:'PUT',body:JSON.stringify({password:p})},t);login('Mot de passe modifié : connectez-vous.')}catch(e){$('#lm').textContent=fr(e)}}
+const ss=t=>{const e=$('#sy');if(e)e.textContent=t};
+async function sync(){if(syncing||!ME||!AU)return;if(!navigator.onLine)return ss('Hors ligne : en attente');syncing=true;ss('Synchronisation…');let ch=0;
+ try{const tk=await token(),H={Authorization:'Bearer '+tk},key='carnet_since_'+ME.id;let since=LS.get(key)||'1970-01-01T00:00:00+00:00';
+  for(;;){const rows=await gj(`/rest/v1/sorties?select=id,data,supprime,updated_at&updated_at=gt.${encodeURIComponent(since)}&order=updated_at.asc&limit=15`,{headers:H});if(!rows.length)break;const loc=await all();
+   for(const r of rows){const l=loc.find(h=>h.id==r.id);if(l&&l._dirty)continue;if(r.supprime){if(l){await del(r.id);ch++}}else{await put({...r.data,id:r.id,uid:ME.id,sb:true});ch++}}
+   since=rows[rows.length-1].updated_at;LS.set(key,since);if(rows.length<15)break}
+  for(const h of(await all()).filter(x=>x.uid==ME.id&&x._dirty)){const{_dirty,_del,uid,sb,...d}=h;
+   await gj('/rest/v1/sorties?on_conflict=id',{method:'POST',headers:{...H,Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify({id:h.id,data:d,supprime:!!_del})});
+   if(_del)await del(h.id);else{const c=(await all()).find(x=>x.id==h.id);if(c){const{_dirty:a1,_del:a2,uid:a3,sb:a4,...e}=c;if(JSON.stringify(e)==JSON.stringify(d)){c._dirty=false;await put(c)}}}}
+  ss('Synchronisé')}
+ catch(e){ss(e instanceof TypeError?'Hors ligne : en attente':(e.status==401||e.status==400)?'Session expirée : reconnectez-vous':'Erreur de synchronisation');console.warn(e)}
+ syncing=false;if(ch&&ME&&!cur)home()}
+addEventListener('online',()=>sync());document.addEventListener('visibilitychange',()=>{if(!document.hidden)sync()});
 if("serviceWorker" in navigator&&location.protocol.startsWith("http")){navigator.serviceWorker.register("sw.js").catch(()=>{});navigator.storage?.persist?.()}
-(function boot(){const u=users().find(x=>x.id==LS.get('carnet_session'));if(u){ME=u;home()}else login()})();
+(function boot(){const h=new URLSearchParams(location.hash.slice(1));
+ if(h.get('type')=='recovery'&&h.get('access_token')){const t=h.get('access_token');history.replaceState(null,'',location.pathname);return recov(t)}
+ try{AU=JSON.parse(LS.get('carnet_auth')||'null')}catch{AU=null}
+ if(AU){ME={id:AU.id,nom:AU.email};home();sync()}else login()})();
 </script></body></html>
